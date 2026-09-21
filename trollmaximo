@@ -1,0 +1,1212 @@
+-- Garante que o jogo já carregou completamente
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Variáveis de Estado
+local selectedPlayer = nil
+local tpTargetPlayer = nil
+local kickFlingTargetPlayer = nil
+local isTeleporting = false
+local isOrbiting = false
+local orbitAngle = 0
+
+-- Novo Estado: MoverModel e Veículos com Jogador
+local selectedVehicleModel = nil
+local vehicleTpTargetPlayer = nil
+local isMoverModelActive = false
+local moverModelTime = 0
+local moverModelSpeeds = {
+    {name = "Muito Lento", val = 2},
+    {name = "Lento", val = 4},
+    {name = "Normal", val = 8},
+    {name = "Rápido", val = 15},
+    {name = "Muito Rápido", val = 30}
+}
+local currentMoverModelSpeedIndex = 3
+local moverModelDistances = {
+    {name = "Perto", val = 3},
+    {name = "Médio", val = 6},
+    {name = "Longe", val = 12},
+    {name = "Muito Longe", val = 20}
+}
+local currentMoverModelDistIndex = 2
+local moverModelHeights = {-2, 0, 2, 5}
+local currentMoverModelHeightIndex = 2
+
+-- Estado: ESP de Veículos Reais Próximos com Regulagem de Distância (1% a 100%)
+local isVehicleEspActive = false
+local vehicleEspPercentage = 20 -- de 1 a 100%
+local vehicleEspBillboards = {}
+local auraPart = nil
+
+-- Estado: Meu Boneco Girando em volta do Player
+local isMyCharOrbiting = false
+local myOrbitAngle = 0
+local orbitSpeeds = {
+    {name = "Muito Lento", val = 0.015},
+    {name = "Lento", val = 0.035},
+    {name = "Normal", val = 0.06},
+    {name = "Rápido", val = 0.12},
+    {name = "Muito Rápido", val = 0.25}
+}
+local currentSpeedIndex = 3
+local currentMyOrbitSpeedIndex = 3
+
+local orbitHeights = {-3, 0, 3, 6}
+local currentHeightIndex = 2
+local orbitDistances = {
+    {name = "Perto", val = 3},
+    {name = "Médio", val = 6},
+    {name = "Longe", val = 12},
+    {name = "Muito Longe", val = 20}
+}
+local currentDistanceIndex = 2
+
+-- Kick Fling & Anti Chute Estado
+local isKickFlinging = false
+local isVoltarNoLugarAtivo = false
+local isAntiChuteAtivo = false
+local originalPositionCFrame = nil
+
+-- Veículos Próximos (Órbita de veículos)
+local isVehiclesOrbiting = false
+local vehicleAngle = 0
+local vehicleSpeeds = {
+    {name = "Muito Lento", val = 0.015},
+    {name = "Lento", val = 0.035},
+    {name = "Normal", val = 0.06},
+    {name = "Rápido", val = 0.12},
+    {name = "Muito Rápido", val = 0.25}
+}
+local currentVehicleSpeedIndex = 3
+local vehicleDistances = {
+    {name = "Perto", val = 3},
+    {name = "Médio", val = 6},
+    {name = "Longe", val = 12},
+    {name = "Muito Longe", val = 22}
+}
+local currentVehicleDistIndex = 2
+local vehicleHeights = {-2, 0, 2, 5}
+local currentVehicleHeightIndex = 2
+
+-- Estado: Seguir com Item (babycar_c)
+local itemSelectedPlayer = nil
+local isFollowItemActive = false
+local followItemSpeeds = {
+    {name = "Muito Devagar", val = 2},
+    {name = "Devagar", val = 4},
+    {name = "Normal", val = 8},
+    {name = "Rápido", val = 15},
+    {name = "Muito Rápido", val = 30}
+}
+local currentFollowItemSpeedIndex = 3
+
+-- Fly
+local isFlying = false
+local flySpeed = 50
+local keysDown = {W = false, A = false, S = false, D = false, Space = false, Shift = false}
+local bodyGyro, bodyVelocity
+
+-- Speed
+local isSpeedEnabled = false
+local speedPercentage = 50
+
+local lastTeleportTick = 0
+local teleportInterval = 3
+
+-- Criação da UI (Menu Flutuante com Abas)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "TestMenuGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = game.CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 430, 0, 520)
+MainFrame.Position = UDim2.new(0.5, -215, 0.5, -260)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+-- Título
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -120, 0, 40)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "Painel Delta"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 14
+Title.Font = Enum.Font.SourceSansBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = MainFrame
+
+-- Status inferior
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(1, -20, 0, 25)
+StatusLabel.Position = UDim2.new(0, 10, 1, -30)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Status: Pronto"
+StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+StatusLabel.TextSize = 12
+StatusLabel.Font = Enum.Font.SourceSansItalic
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.Parent = MainFrame
+
+-- Container de Abas (Direita)
+local TabButtonsContainer = Instance.new("Frame")
+TabButtonsContainer.Size = UDim2.new(0, 110, 1, -55)
+TabButtonsContainer.Position = UDim2.new(1, -115, 0, 45)
+TabButtonsContainer.BackgroundTransparency = 1
+TabButtonsContainer.Parent = MainFrame
+
+local TabListLayout = Instance.new("UIListLayout")
+TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+TabListLayout.Padding = UDim.new(0, 6)
+TabListLayout.Parent = TabButtonsContainer
+
+-- Container de Conteúdo das Abas (Esquerda)
+local ContentContainer = Instance.new("Frame")
+ContentContainer.Size = UDim2.new(1, -135, 1, -75)
+ContentContainer.Position = UDim2.new(0, 10, 0, 45)
+ContentContainer.BackgroundTransparency = 1
+ContentContainer.Parent = MainFrame
+
+-- Criar as Abas (Paineis)
+local panels = {}
+local tabNames = {"Jogador", "Órbita", "Veículos", "Kick Fling", "Itens"}
+
+for i, name in ipairs(tabNames) do
+    local panel = Instance.new("ScrollingFrame")
+    panel.Name = name .. "Panel"
+    panel.Size = UDim2.new(1, 0, 1, 0)
+    panel.BackgroundTransparency = 1
+    panel.BorderSizePixel = 0
+    panel.CanvasSize = UDim2.new(0, 0, 0, 550)
+    panel.Visible = (i == 1)
+    panel.Parent = ContentContainer
+    panels[name] = panel
+
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 6)
+    layout.Parent = panel
+
+    local tabBtn = Instance.new("TextButton")
+    tabBtn.Size = UDim2.new(1, 0, 0, 32)
+    tabBtn.BackgroundColor3 = (i == 1) and Color3.fromRGB(0, 120, 215) or Color3.fromRGB(50, 50, 60)
+    tabBtn.Text = name
+    tabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tabBtn.Font = Enum.Font.SourceSansBold
+    tabBtn.TextSize = 12
+    tabBtn.Parent = TabButtonsContainer
+    Instance.new("UICorner", tabBtn).CornerRadius = UDim.new(0, 6)
+
+    tabBtn.MouseButton1Click:Connect(function()
+        for k, p in pairs(panels) do p.Visible = false end
+        panel.Visible = true
+        for _, b in ipairs(TabButtonsContainer:GetChildren()) do
+            if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(50, 50, 60) end
+        end
+        tabBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+    end)
+end
+
+-- ==================== CONTEÚDO DA ABA: JOGADOR ====================
+local flyPanel = panels["Jogador"]
+
+local FlyButton = Instance.new("TextButton")
+FlyButton.Size = UDim2.new(1, 0, 0, 30)
+FlyButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+FlyButton.Text = "Fly (Voo): OFF"
+FlyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+FlyButton.Font = Enum.Font.SourceSansBold
+FlyButton.TextSize = 13
+FlyButton.Parent = flyPanel
+Instance.new("UICorner", FlyButton).CornerRadius = UDim.new(0, 6)
+
+local SpeedToggleButton = Instance.new("TextButton")
+SpeedToggleButton.Size = UDim2.new(1, 0, 0, 30)
+SpeedToggleButton.BackgroundColor3 = Color3.fromRGB(180, 100, 50)
+SpeedToggleButton.Text = "Speed: OFF"
+SpeedToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedToggleButton.Font = Enum.Font.SourceSansBold
+SpeedToggleButton.TextSize = 13
+SpeedToggleButton.Parent = flyPanel
+Instance.new("UICorner", SpeedToggleButton).CornerRadius = UDim.new(0, 6)
+
+local SpeedLevelButton = Instance.new("TextButton")
+SpeedLevelButton.Size = UDim2.new(1, 0, 0, 30)
+SpeedLevelButton.BackgroundColor3 = Color3.fromRGB(120, 70, 40)
+SpeedLevelButton.Text = "Nível Speed: 50%"
+SpeedLevelButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedLevelButton.Font = Enum.Font.SourceSansBold
+SpeedLevelButton.TextSize = 13
+SpeedLevelButton.Parent = flyPanel
+Instance.new("UICorner", SpeedLevelButton).CornerRadius = UDim.new(0, 6)
+
+-- ==================== CONTEÚDO DA ABA: ÓRBITA ====================
+local orbitPanel = panels["Órbita"]
+
+local OrbitTitle = Instance.new("TextLabel")
+OrbitTitle.Size = UDim2.new(1, 0, 0, 18)
+OrbitTitle.BackgroundTransparency = 1
+OrbitTitle.Text = "Selecionar Alvo:"
+OrbitTitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+OrbitTitle.TextSize = 12
+OrbitTitle.Font = Enum.Font.SourceSansBold
+OrbitTitle.TextXAlignment = Enum.TextXAlignment.Left
+OrbitTitle.Parent = orbitPanel
+
+local PlayerList = Instance.new("ScrollingFrame")
+PlayerList.Size = UDim2.new(1, 0, 0, 55)
+PlayerList.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+PlayerList.BorderSizePixel = 0
+PlayerList.CanvasSize = UDim2.new(0, 0, 0, 0)
+PlayerList.Parent = orbitPanel
+local UIListLayout1 = Instance.new("UIListLayout")
+UIListLayout1.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout1.Padding = UDim.new(0, 4)
+UIListLayout1.Parent = PlayerList
+
+local TpNoAlvoButton = Instance.new("TextButton")
+TpNoAlvoButton.Size = UDim2.new(1, 0, 0, 26)
+TpNoAlvoButton.BackgroundColor3 = Color3.fromRGB(50, 150, 100)
+TpNoAlvoButton.Text = "Tp no Alvo (Instantâneo)"
+TpNoAlvoButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+TpNoAlvoButton.Font = Enum.Font.SourceSansBold
+TpNoAlvoButton.TextSize = 12
+TpNoAlvoButton.Parent = orbitPanel
+Instance.new("UICorner", TpNoAlvoButton).CornerRadius = UDim.new(0, 6)
+
+local TpButton = Instance.new("TextButton")
+TpButton.Size = UDim2.new(1, 0, 0, 26)
+TpButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+TpButton.Text = "Tp (3s c/ Queda): OFF"
+TpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+TpButton.Font = Enum.Font.SourceSansBold
+TpButton.TextSize = 12
+TpButton.Parent = orbitPanel
+Instance.new("UICorner", TpButton).CornerRadius = UDim.new(0, 6)
+
+local OrbitButton = Instance.new("TextButton")
+OrbitButton.Size = UDim2.new(1, 0, 0, 26)
+OrbitButton.BackgroundColor3 = Color3.fromRGB(147, 112, 219)
+OrbitButton.Text = "Modo Órbita (Alvo gira): OFF"
+OrbitButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+OrbitButton.Font = Enum.Font.SourceSansBold
+OrbitButton.TextSize = 12
+OrbitButton.Parent = orbitPanel
+Instance.new("UICorner", OrbitButton).CornerRadius = UDim.new(0, 6)
+
+local SpeedButton = Instance.new("TextButton")
+SpeedButton.Size = UDim2.new(1, 0, 0, 26)
+SpeedButton.BackgroundColor3 = Color3.fromRGB(100, 80, 150)
+SpeedButton.Text = "Vel. Órbita (Alvo): Normal"
+SpeedButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedButton.Font = Enum.Font.SourceSansBold
+SpeedButton.TextSize = 12
+SpeedButton.Parent = orbitPanel
+Instance.new("UICorner", SpeedButton).CornerRadius = UDim.new(0, 6)
+
+local MyCharOrbitButton = Instance.new("TextButton")
+MyCharOrbitButton.Size = UDim2.new(1, 0, 0, 26)
+MyCharOrbitButton.BackgroundColor3 = Color3.fromRGB(218, 112, 214)
+MyCharOrbitButton.Text = "Meu Boneco Órbita: OFF"
+MyCharOrbitButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MyCharOrbitButton.Font = Enum.Font.SourceSansBold
+MyCharOrbitButton.TextSize = 12
+MyCharOrbitButton.Parent = orbitPanel
+Instance.new("UICorner", MyCharOrbitButton).CornerRadius = UDim.new(0, 6)
+
+local MyCharSpeedButton = Instance.new("TextButton")
+MyCharSpeedButton.Size = UDim2.new(1, 0, 0, 26)
+MyCharSpeedButton.BackgroundColor3 = Color3.fromRGB(186, 85, 211)
+MyCharSpeedButton.Text = "Vel. Meu Giro: Normal"
+MyCharSpeedButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MyCharSpeedButton.Font = Enum.Font.SourceSansBold
+MyCharSpeedButton.TextSize = 12
+MyCharSpeedButton.Parent = orbitPanel
+Instance.new("UICorner", MyCharSpeedButton).CornerRadius = UDim.new(0, 6)
+
+local HeightButton = Instance.new("TextButton")
+HeightButton.Size = UDim2.new(1, 0, 0, 26)
+HeightButton.BackgroundColor3 = Color3.fromRGB(120, 90, 170)
+HeightButton.Text = "Altura Órbita: Meio"
+HeightButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+HeightButton.Font = Enum.Font.SourceSansBold
+HeightButton.TextSize = 12
+HeightButton.Parent = orbitPanel
+Instance.new("UICorner", HeightButton).CornerRadius = UDim.new(0, 6)
+
+local DistanceButton = Instance.new("TextButton")
+DistanceButton.Size = UDim2.new(1, 0, 0, 26)
+DistanceButton.BackgroundColor3 = Color3.fromRGB(150, 100, 120)
+DistanceButton.Text = "Distância Órbita: Médio"
+DistanceButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+DistanceButton.Font = Enum.Font.SourceSansBold
+DistanceButton.TextSize = 12
+DistanceButton.Parent = orbitPanel
+Instance.new("UICorner", DistanceButton).CornerRadius = UDim.new(0, 6)
+
+-- ==================== CONTEÚDO DA ABA: VEÍCULOS ====================
+local vehPanel = panels["Veículos"]
+
+local EspVehDistBtn = Instance.new("TextButton")
+EspVehDistBtn.Size = UDim2.new(1, 0, 0, 32)
+EspVehDistBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+EspVehDistBtn.Text = "Distância Identificação: 20%"
+EspVehDistBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+EspVehDistBtn.Font = Enum.Font.SourceSansBold
+EspVehDistBtn.TextSize = 12
+EspVehDistBtn.Parent = vehPanel
+Instance.new("UICorner", EspVehDistBtn).CornerRadius = UDim.new(0, 6)
+
+local VehListTitle = Instance.new("TextLabel")
+VehListTitle.Size = UDim2.new(1, 0, 0, 18)
+VehListTitle.BackgroundTransparency = 1
+VehListTitle.Text = "1. Selecione o Carro ou Moto do Mapa:"
+VehListTitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+VehListTitle.TextSize = 12
+VehListTitle.Font = Enum.Font.SourceSansBold
+VehListTitle.TextXAlignment = Enum.TextXAlignment.Left
+VehListTitle.Parent = vehPanel
+
+local MapVehicleList = Instance.new("ScrollingFrame")
+MapVehicleList.Size = UDim2.new(1, 0, 0, 45)
+MapVehicleList.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+MapVehicleList.BorderSizePixel = 0
+MapVehicleList.CanvasSize = UDim2.new(0, 0, 0, 0)
+MapVehicleList.Parent = vehPanel
+local UIListLayoutMapVeh = Instance.new("UIListLayout")
+UIListLayoutMapVeh.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayoutMapVeh.Padding = UDim.new(0, 4)
+UIListLayoutMapVeh.Parent = MapVehicleList
+
+local PlayerVehTitle = Instance.new("TextLabel")
+PlayerVehTitle.Size = UDim2.new(1, 0, 0, 18)
+PlayerVehTitle.BackgroundTransparency = 1
+PlayerVehTitle.Text = "2. Selecione o Player Alvo (Vai e Vem):"
+PlayerVehTitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+PlayerVehTitle.TextSize = 12
+PlayerVehTitle.Font = Enum.Font.SourceSansBold
+PlayerVehTitle.TextXAlignment = Enum.TextXAlignment.Left
+PlayerVehTitle.Parent = vehPanel
+
+local VehiclePlayerList = Instance.new("ScrollingFrame")
+VehiclePlayerList.Size = UDim2.new(1, 0, 0, 45)
+VehiclePlayerList.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+VehiclePlayerList.BorderSizePixel = 0
+VehiclePlayerList.CanvasSize = UDim2.new(0, 0, 0, 0)
+VehiclePlayerList.Parent = vehPanel
+local UIListLayoutVehPlayer = Instance.new("UIListLayout")
+UIListLayoutVehPlayer.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayoutVehPlayer.Padding = UDim.new(0, 4)
+UIListLayoutVehPlayer.Parent = VehiclePlayerList
+
+local RefreshVehiclesBtn = Instance.new("TextButton")
+RefreshVehiclesBtn.Size = UDim2.new(1, 0, 0, 30)
+RefreshVehiclesBtn.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
+RefreshVehiclesBtn.Text = "Atualizar / Identificar Carros e Motos"
+RefreshVehiclesBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+RefreshVehiclesBtn.Font = Enum.Font.SourceSansBold
+RefreshVehiclesBtn.TextSize = 12
+RefreshVehiclesBtn.Parent = vehPanel
+Instance.new("UICorner", RefreshVehiclesBtn).CornerRadius = UDim.new(0, 6)
+
+local MoverModelToggleBtn = Instance.new("TextButton")
+MoverModelToggleBtn.Size = UDim2.new(1, 0, 0, 28)
+MoverModelToggleBtn.BackgroundColor3 = Color3.fromRGB(210, 105, 30)
+MoverModelToggleBtn.Text = "MoverModel (Vai e Vem no Player): OFF"
+MoverModelToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MoverModelToggleBtn.Font = Enum.Font.SourceSansBold
+MoverModelToggleBtn.TextSize = 12
+MoverModelToggleBtn.Parent = vehPanel
+Instance.new("UICorner", MoverModelToggleBtn).CornerRadius = UDim.new(0, 6)
+
+local MoverModelSpeedBtn = Instance.new("TextButton")
+MoverModelSpeedBtn.Size = UDim2.new(1, 0, 0, 28)
+MoverModelSpeedBtn.BackgroundColor3 = Color3.fromRGB(180, 85, 20)
+MoverModelSpeedBtn.Text = "Vel. MoverModel: Normal"
+MoverModelSpeedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MoverModelSpeedBtn.Font = Enum.Font.SourceSansBold
+MoverModelSpeedBtn.TextSize = 12
+MoverModelSpeedBtn.Parent = vehPanel
+Instance.new("UICorner", MoverModelSpeedBtn).CornerRadius = UDim.new(0, 6)
+
+local MoverModelDistBtn = Instance.new("TextButton")
+MoverModelDistBtn.Size = UDim2.new(1, 0, 0, 28)
+MoverModelDistBtn.BackgroundColor3 = Color3.fromRGB(150, 70, 15)
+MoverModelDistBtn.Text = "Distância MoverModel: Médio"
+MoverModelDistBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MoverModelDistBtn.Font = Enum.Font.SourceSansBold
+MoverModelDistBtn.TextSize = 12
+MoverModelDistBtn.Parent = vehPanel
+Instance.new("UICorner", MoverModelDistBtn).CornerRadius = UDim.new(0, 6)
+
+local MoverModelHeightBtn = Instance.new("TextButton")
+MoverModelHeightBtn.Size = UDim2.new(1, 0, 0, 28)
+MoverModelHeightBtn.BackgroundColor3 = Color3.fromRGB(120, 55, 10)
+MoverModelHeightBtn.Text = "Altura MoverModel: Meio"
+MoverModelHeightBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MoverModelHeightBtn.Font = Enum.Font.SourceSansBold
+MoverModelHeightBtn.TextSize = 12
+MoverModelHeightBtn.Parent = vehPanel
+Instance.new("UICorner", MoverModelHeightBtn).CornerRadius = UDim.new(0, 6)
+
+local VehicleToggleBtn = Instance.new("TextButton")
+VehicleToggleBtn.Size = UDim2.new(1, 0, 0, 28)
+VehicleToggleBtn.BackgroundColor3 = Color3.fromRGB(46, 139, 87)
+VehicleToggleBtn.Text = "Girar Veículos: OFF"
+VehicleToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+VehicleToggleBtn.Font = Enum.Font.SourceSansBold
+VehicleToggleBtn.TextSize = 12
+VehicleToggleBtn.Parent = vehPanel
+Instance.new("UICorner", VehicleToggleBtn).CornerRadius = UDim.new(0, 6)
+
+local VehicleSpeedBtn = Instance.new("TextButton")
+VehicleSpeedBtn.Size = UDim2.new(1, 0, 0, 28)
+VehicleSpeedBtn.BackgroundColor3 = Color3.fromRGB(40, 100, 75)
+VehicleSpeedBtn.Text = "Vel. Veículos: Normal"
+VehicleSpeedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+VehicleSpeedBtn.Font = Enum.Font.SourceSansBold
+VehicleSpeedBtn.TextSize = 12
+VehicleSpeedBtn.Parent = vehPanel
+Instance.new("UICorner", VehicleSpeedBtn).CornerRadius = UDim.new(0, 6)
+
+local VehicleDistBtn = Instance.new("TextButton")
+VehicleDistBtn.Size = UDim2.new(1, 0, 0, 28)
+VehicleDistBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 100)
+VehicleDistBtn.Text = "Distância Veículos: Médio"
+VehicleDistBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+VehicleDistBtn.Font = Enum.Font.SourceSansBold
+VehicleDistBtn.TextSize = 12
+VehicleDistBtn.Parent = vehPanel
+Instance.new("UICorner", VehicleDistBtn).CornerRadius = UDim.new(0, 6)
+
+local VehicleHeightBtn = Instance.new("TextButton")
+VehicleHeightBtn.Size = UDim2.new(1, 0, 0, 28)
+VehicleHeightBtn.BackgroundColor3 = Color3.fromRGB(80, 140, 110)
+VehicleHeightBtn.Text = "Altura Veículos: Meio"
+VehicleHeightBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+VehicleHeightBtn.Font = Enum.Font.SourceSansBold
+VehicleHeightBtn.TextSize = 12
+VehicleHeightBtn.Parent = vehPanel
+Instance.new("UICorner", VehicleHeightBtn).CornerRadius = UDim.new(0, 6)
+
+-- ==================== CONTEÚDO DA ABA: KICK FLING ====================
+local flingPanel = panels["Kick Fling"]
+
+local FlingTitle = Instance.new("TextLabel")
+FlingTitle.Size = UDim2.new(1, 0, 0, 18)
+FlingTitle.BackgroundTransparency = 1
+FlingTitle.Text = "Escolha o Alvo para o Kick Fling:"
+FlingTitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+FlingTitle.TextSize = 12
+FlingTitle.Font = Enum.Font.SourceSansBold
+FlingTitle.TextXAlignment = Enum.TextXAlignment.Left
+FlingTitle.Parent = flingPanel
+
+local KickFlingList = Instance.new("ScrollingFrame")
+KickFlingList.Size = UDim2.new(1, 0, 0, 75)
+KickFlingList.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+KickFlingList.BorderSizePixel = 0
+KickFlingList.CanvasSize = UDim2.new(0, 0, 0, 0)
+KickFlingList.Parent = flingPanel
+local UIListLayout3 = Instance.new("UIListLayout")
+UIListLayout3.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout3.Padding = UDim.new(0, 4)
+UIListLayout3.Parent = KickFlingList
+
+local VoltarNoLugarButton = Instance.new("TextButton")
+VoltarNoLugarButton.Size = UDim2.new(1, 0, 0, 28)
+VoltarNoLugarButton.BackgroundColor3 = Color3.fromRGB(100, 100, 120)
+VoltarNoLugarButton.Text = "Voltar no Lugar: OFF"
+VoltarNoLugarButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+VoltarNoLugarButton.Font = Enum.Font.SourceSansBold
+VoltarNoLugarButton.TextSize = 12
+VoltarNoLugarButton.Parent = flingPanel
+Instance.new("UICorner", VoltarNoLugarButton).CornerRadius = UDim.new(0, 6)
+
+local AntiChuteButton = Instance.new("TextButton")
+AntiChuteButton.Size = UDim2.new(1, 0, 0, 28)
+AntiChuteButton.BackgroundColor3 = Color3.fromRGB(70, 100, 150)
+AntiChuteButton.Text = "Anti Chute: OFF"
+AntiChuteButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+AntiChuteButton.Font = Enum.Font.SourceSansBold
+AntiChuteButton.TextSize = 12
+AntiChuteButton.Parent = flingPanel
+Instance.new("UICorner", AntiChuteButton).CornerRadius = UDim.new(0, 6)
+
+local KickFlingButton = Instance.new("TextButton")
+KickFlingButton.Size = UDim2.new(1, 0, 0, 30)
+KickFlingButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+KickFlingButton.Text = "Kick Fling: OFF"
+KickFlingButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+KickFlingButton.Font = Enum.Font.SourceSansBold
+KickFlingButton.TextSize = 13
+KickFlingButton.Parent = flingPanel
+Instance.new("UICorner", KickFlingButton).CornerRadius = UDim.new(0, 6)
+
+-- ==================== CONTEÚDO DA ABA: ITENS ====================
+local itemPanel = panels["Itens"]
+
+local ItemTitle = Instance.new("TextLabel")
+ItemTitle.Size = UDim2.new(1, 0, 0, 18)
+ItemTitle.BackgroundTransparency = 1
+ItemTitle.Text = "Escolha o Alvo para o Item:"
+ItemTitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+ItemTitle.TextSize = 12
+ItemTitle.Font = Enum.Font.SourceSansBold
+ItemTitle.TextXAlignment = Enum.TextXAlignment.Left
+ItemTitle.Parent = itemPanel
+
+local ItemPlayerList = Instance.new("ScrollingFrame")
+ItemPlayerList.Size = UDim2.new(1, 0, 0, 65)
+ItemPlayerList.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+ItemPlayerList.BorderSizePixel = 0
+ItemPlayerList.CanvasSize = UDim2.new(0, 0, 0, 0)
+ItemPlayerList.Parent = itemPanel
+local UIListLayoutItem = Instance.new("UIListLayout")
+UIListLayoutItem.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayoutItem.Padding = UDim.new(0, 4)
+UIListLayoutItem.Parent = ItemPlayerList
+
+local FollowItemButton = Instance.new("TextButton")
+FollowItemButton.Size = UDim2.new(1, 0, 0, 30)
+FollowItemButton.BackgroundColor3 = Color3.fromRGB(210, 130, 30)
+FollowItemButton.Text = "Seguir c/ Item (babycar_c): OFF"
+FollowItemButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+FollowItemButton.Font = Enum.Font.SourceSansBold
+FollowItemButton.TextSize = 12
+FollowItemButton.Parent = itemPanel
+Instance.new("UICorner", FollowItemButton).CornerRadius = UDim.new(0, 6)
+
+local FollowItemSpeedButton = Instance.new("TextButton")
+FollowItemSpeedButton.Size = UDim2.new(1, 0, 0, 28)
+FollowItemSpeedButton.BackgroundColor3 = Color3.fromRGB(160, 95, 20)
+FollowItemSpeedButton.Text = "Vel. Vai e Vem: Normal"
+FollowItemSpeedButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+FollowItemSpeedButton.Font = Enum.Font.SourceSansBold
+FollowItemSpeedButton.TextSize = 12
+FollowItemSpeedButton.Parent = itemPanel
+Instance.new("UICorner", FollowItemSpeedButton).CornerRadius = UDim.new(0, 6)
+
+
+-- ==================== FUNÇÃO INTELIGENTE DE DETECÇÃO DE CARROS E MOTOS (COM SUPORTE A ASSENTOS DE MOTOS) ====================
+local function isRealVehicle(model)
+    if not model or not model:IsA("Model") then return false end
+    
+    -- Ignora avatares de jogadores
+    if Players:GetPlayerFromCharacter(model) then return false end
+    
+    local nameLower = string.lower(model.Name)
+    local hasVehicleKeyword = string.find(nameLower, "car") or string.find(nameLower, "moto") or string.find(nameLower, "veic") or string.find(nameLower, "bike") or string.find(nameLower, "veh") or string.find(nameLower, "auto") or string.find(nameLower, "scooter") or string.find(nameLower, "mota") or string.find(nameLower, "quad") or string.find(nameLower, "triciclo")
+    
+    local hasSeat = false
+    local partsCount = 0
+    
+    for _, obj in ipairs(model:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            partsCount = partsCount + 1
+        end
+        -- Identifica tanto VehicleSeat quanto assentos normais de montagem em motos
+        if obj:IsA("VehicleSeat") or obj:IsA("Seat") then
+            hasSeat = true
+        end
+    end
+    
+    -- Se tiver assento e for um modelo válido (qualquer moto ou carro com assento no mapa)
+    if hasSeat and partsCount >= 1 then
+        return true
+    elseif hasVehicleKeyword then
+        return true
+    end
+    
+    return false
+end
+
+local function refreshMapVehicles()
+    for _, child in ipairs(MapVehicleList:GetChildren()) do 
+        if child:IsA("TextButton") then child:Destroy() end 
+    end
+
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local maxRange = (vehicleEspPercentage / 100) * 500
+    if maxRange < 5 then maxRange = 5 end
+
+    local foundModels = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("VehicleSeat") or obj:IsA("Seat") then
+            local model = obj.Parent
+            if model and isRealVehicle(model) and not table.find(foundModels, model) then
+                local primary = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+                if primary and myRoot then
+                    local dist = (primary.Position - myRoot.Position).Magnitude
+                    if dist <= maxRange then
+                        table.insert(foundModels, model)
+                    end
+                end
+            end
+        end
+    end
+
+    for _, model in ipairs(foundModels) do
+        local primary = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+        local distVal = myRoot and primary and math.floor((primary.Position - myRoot.Position).Magnitude) or 0
+
+        local vBtn = Instance.new("TextButton")
+        vBtn.Size = UDim2.new(1, 0, 0, 24)
+        vBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        vBtn.Text = model.Name .. " [" .. distVal .. "m]"
+        vBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        vBtn.Font = Enum.Font.SourceSans
+        vBtn.TextSize = 12
+        vBtn.Parent = MapVehicleList
+        Instance.new("UICorner", vBtn).CornerRadius = UDim.new(0, 4)
+        
+        vBtn.MouseButton1Click:Connect(function()
+            selectedVehicleModel = model
+            StatusLabel.Text = "Veículo/Moto Selecionado: " .. model.Name
+            for _, b in ipairs(MapVehicleList:GetChildren()) do 
+                if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(50, 50, 60) end 
+            end
+            vBtn.BackgroundColor3 = Color3.fromRGB(210, 105, 30)
+        end)
+    end
+
+    local h = math.max(0, #foundModels * 28)
+    MapVehicleList.CanvasSize = UDim2.new(0, 0, 0, h)
+    StatusLabel.Text = "Identificados " .. #foundModels .. " carros/motos no raio de " .. vehicleEspPercentage .. "%."
+end
+
+local function refreshAllLists()
+    for _, child in ipairs(PlayerList:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
+    for _, child in ipairs(VehiclePlayerList:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
+    for _, child in ipairs(KickFlingList:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
+    for _, child in ipairs(ItemPlayerList:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            -- Lista Órbita
+            local pBtn1 = Instance.new("TextButton")
+            pBtn1.Size = UDim2.new(1, 0, 0, 24)
+            pBtn1.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+            pBtn1.Text = player.Name
+            pBtn1.TextColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn1.Font = Enum.Font.SourceSans
+            pBtn1.TextSize = 12
+            pBtn1.Parent = PlayerList
+            Instance.new("UICorner", pBtn1).CornerRadius = UDim.new(0, 4)
+            pBtn1.MouseButton1Click:Connect(function()
+                selectedPlayer = player
+                StatusLabel.Text = "Alvo Órbita: " .. player.Name
+                for _, b in ipairs(PlayerList:GetChildren()) do if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(50, 50, 60) end end
+                pBtn1.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+            end)
+
+            -- Lista Player para Veículo / Vai e Vem
+            local pBtnVeh = Instance.new("TextButton")
+            pBtnVeh.Size = UDim2.new(1, 0, 0, 24)
+            pBtnVeh.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+            pBtnVeh.Text = player.Name
+            pBtnVeh.TextColor3 = Color3.fromRGB(255, 255, 255)
+            pBtnVeh.Font = Enum.Font.SourceSans
+            pBtnVeh.TextSize = 12
+            pBtnVeh.Parent = VehiclePlayerList
+            Instance.new("UICorner", pBtnVeh).CornerRadius = UDim.new(0, 4)
+            pBtnVeh.MouseButton1Click:Connect(function()
+                vehicleTpTargetPlayer = player
+                StatusLabel.Text = "Player Alvo (Vai e Vem): " .. player.Name
+                for _, b in ipairs(VehiclePlayerList:GetChildren()) do if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(50, 50, 60) end end
+                pBtnVeh.BackgroundColor3 = Color3.fromRGB(46, 139, 87)
+            end)
+
+            -- Lista Kick Fling
+            local pBtn2 = Instance.new("TextButton")
+            pBtn2.Size = UDim2.new(1, 0, 0, 24)
+            pBtn2.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+            pBtn2.Text = player.Name
+            pBtn2.TextColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn2.Font = Enum.Font.SourceSans
+            pBtn2.TextSize = 12
+            pBtn2.Parent = KickFlingList
+            Instance.new("UICorner", pBtn2).CornerRadius = UDim.new(0, 4)
+            pBtn2.MouseButton1Click:Connect(function()
+                kickFlingTargetPlayer = player
+                StatusLabel.Text = "Alvo Fling: " .. player.Name
+                for _, b in ipairs(KickFlingList:GetChildren()) do if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(50, 50, 60) end end
+                pBtn2.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+            end)
+
+            -- Lista de Itens (babycar_c)
+            local pBtn3 = Instance.new("TextButton")
+            pBtn3.Size = UDim2.new(1, 0, 0, 24)
+            pBtn3.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+            pBtn3.Text = player.Name
+            pBtn3.TextColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn3.Font = Enum.Font.SourceSans
+            pBtn3.TextSize = 12
+            pBtn3.Parent = ItemPlayerList
+            Instance.new("UICorner", pBtn3).CornerRadius = UDim.new(0, 4)
+            pBtn3.MouseButton1Click:Connect(function()
+                itemSelectedPlayer = player
+                StatusLabel.Text = "Alvo do Item: " .. player.Name
+                for _, b in ipairs(ItemPlayerList:GetChildren()) do if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(50, 50, 60) end end
+                pBtn3.BackgroundColor3 = Color3.fromRGB(210, 130, 30)
+            end)
+        end
+    end
+    local h = math.max(0, (#Players:GetPlayers() - 1) * 28)
+    PlayerList.CanvasSize = UDim2.new(0, 0, 0, h)
+    VehiclePlayerList.CanvasSize = UDim2.new(0, 0, 0, h)
+    KickFlingList.CanvasSize = UDim2.new(0, 0, 0, h)
+    ItemPlayerList.CanvasSize = UDim2.new(0, 0, 0, h)
+    
+    refreshMapVehicles()
+end
+
+Players.PlayerAdded:Connect(refreshAllLists)
+Players.PlayerRemoving:Connect(refreshAllLists)
+refreshAllLists()
+
+
+-- ==================== EVENTOS DOS BOTÕES ====================
+RefreshVehiclesBtn.MouseButton1Click:Connect(function()
+    refreshMapVehicles()
+end)
+
+FlyButton.MouseButton1Click:Connect(function()
+    isFlying = not isFlying
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    FlyButton.BackgroundColor3 = isFlying and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(180, 50, 50)
+    FlyButton.Text = isFlying and "Fly (Voo): ON" or "Fly (Voo): OFF"
+    if isFlying and myRoot then
+        bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.P = 9e4; bodyGyro.maxTorque = Vector3.new(9e4, 9e4, 9e4); bodyGyro.CFrame = myRoot.CFrame; bodyGyro.Parent = myRoot
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.velocity = Vector3.new(0, 0, 0); bodyVelocity.maxForce = Vector3.new(9e4, 9e4, 9e4); bodyVelocity.Parent = myRoot
+    else
+        if bodyGyro then bodyGyro:Destroy() end
+        if bodyVelocity then bodyVelocity:Destroy() end
+    end
+end)
+
+SpeedToggleButton.MouseButton1Click:Connect(function()
+    isSpeedEnabled = not isSpeedEnabled
+    SpeedToggleButton.BackgroundColor3 = isSpeedEnabled and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(180, 100, 50)
+    SpeedToggleButton.Text = isSpeedEnabled and "Speed: ON" or "Speed: OFF"
+    if not isSpeedEnabled then
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = 16 end
+    end
+end)
+
+SpeedLevelButton.MouseButton1Click:Connect(function()
+    speedPercentage = speedPercentage + 10
+    if speedPercentage > 100 then speedPercentage = 10 end
+    SpeedLevelButton.Text = "Nível Speed: " .. speedPercentage .. "%"
+end)
+
+TpNoAlvoButton.MouseButton1Click:Connect(function()
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if selectedPlayer and selectedPlayer.Character and myRoot then
+        local targetRoot = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if targetRoot then
+            myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 3, 3)
+            myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            StatusLabel.Text = "Teletransportado para: " .. selectedPlayer.Name
+        else
+            StatusLabel.Text = "O alvo não tem parte principal (RootPart)."
+        end
+    else
+        StatusLabel.Text = "Selecione um jogador na lista primeiro!"
+    end
+end)
+
+TpButton.MouseButton1Click:Connect(function()
+    isTeleporting = not isTeleporting
+    TpButton.BackgroundColor3 = isTeleporting and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(70, 130, 180)
+    TpButton.Text = isTeleporting and "Tp (3s c/ Queda): ON" or "Tp (3s c/ Queda): OFF"
+    if isTeleporting then lastTeleportTick = tick() end
+end)
+
+OrbitButton.MouseButton1Click:Connect(function()
+    isOrbiting = not isOrbiting
+    OrbitButton.BackgroundColor3 = isOrbiting and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(147, 112, 219)
+    OrbitButton.Text = isOrbiting and "Modo Órbita (Alvo gira): ON" or "Modo Órbita (Alvo gira): OFF"
+end)
+
+SpeedButton.MouseButton1Click:Connect(function()
+    currentSpeedIndex = currentSpeedIndex % #orbitSpeeds + 1
+    SpeedButton.Text = "Vel. Órbita (Alvo): " .. orbitSpeeds[currentSpeedIndex].name
+end)
+
+MyCharOrbitButton.MouseButton1Click:Connect(function()
+    isMyCharOrbiting = not isMyCharOrbiting
+    MyCharOrbitButton.BackgroundColor3 = isMyCharOrbiting and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(218, 112, 214)
+    MyCharOrbitButton.Text = isMyCharOrbiting and "Meu Boneco Órbita: ON" or "Meu Boneco Órbita: OFF"
+end)
+
+MyCharSpeedButton.MouseButton1Click:Connect(function()
+    currentMyOrbitSpeedIndex = currentMyOrbitSpeedIndex % #orbitSpeeds + 1
+    MyCharSpeedButton.Text = "Vel. Meu Giro: " .. orbitSpeeds[currentMyOrbitSpeedIndex].name
+end)
+
+HeightButton.MouseButton1Click:Connect(function()
+    currentHeightIndex = currentHeightIndex % #orbitHeights + 1
+    local nameText = (currentHeightIndex == 1 and "Baixo" or currentHeightIndex == 2 and "Meio" or currentHeightIndex == 3 and "Alto" or "Muito Alto")
+    HeightButton.Text = "Altura Órbita: " .. nameText
+end)
+
+DistanceButton.MouseButton1Click:Connect(function()
+    currentDistanceIndex = currentDistanceIndex % #orbitDistances + 1
+    DistanceButton.Text = "Distância Órbita: " .. orbitDistances[currentDistanceIndex].name
+end)
+
+-- Regulagem da Distância de Identificação (1% até 100%)
+EspVehDistBtn.MouseButton1Click:Connect(function()
+    vehicleEspPercentage = vehicleEspPercentage + 5
+    if vehicleEspPercentage > 100 then
+        vehicleEspPercentage = 1
+    end
+    EspVehDistBtn.Text = "Distância Identificação: " .. vehicleEspPercentage .. "%"
+end)
+
+-- Botões MoverModel (Vai e Vem no Player)
+MoverModelToggleBtn.MouseButton1Click:Connect(function()
+    isMoverModelActive = not isMoverModelActive
+    MoverModelToggleBtn.BackgroundColor3 = isMoverModelActive and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(210, 105, 30)
+    MoverModelToggleBtn.Text = isMoverModelActive and "MoverModel (Vai e Vem no Player): ON" or "MoverModel (Vai e Vem no Player): OFF"
+    
+    if isMoverModelActive then
+        if not selectedVehicleModel then
+            StatusLabel.Text = "Aviso: Selecione um carro ou moto do mapa!"
+        elseif not vehicleTpTargetPlayer then
+            StatusLabel.Text = "Aviso: Selecione um player na lista 2!"
+        else
+            StatusLabel.Text = "Vai e Vem ativado no player: " .. vehicleTpTargetPlayer.Name
+        end
+    end
+end)
+
+MoverModelSpeedBtn.MouseButton1Click:Connect(function()
+    currentMoverModelSpeedIndex = currentMoverModelSpeedIndex % #moverModelSpeeds + 1
+    MoverModelSpeedBtn.Text = "Vel. MoverModel: " .. moverModelSpeeds[currentMoverModelSpeedIndex].name
+end)
+
+MoverModelDistBtn.MouseButton1Click:Connect(function()
+    currentMoverModelDistIndex = currentMoverModelDistIndex % #moverModelDistances + 1
+    MoverModelDistBtn.Text = "Distância MoverModel: " .. moverModelDistances[currentMoverModelDistIndex].name
+end)
+
+MoverModelHeightBtn.MouseButton1Click:Connect(function()
+    currentMoverModelHeightIndex = currentMoverModelHeightIndex % #moverModelHeights + 1
+    local nameText = (currentMoverModelHeightIndex == 1 and "Baixo" or currentMoverModelHeightIndex == 2 and "Meio" or currentMoverModelHeightIndex == 3 and "Alto" or "Muito Alto")
+    MoverModelHeightBtn.Text = "Altura MoverModel: " .. nameText
+end)
+
+VehicleToggleBtn.MouseButton1Click:Connect(function()
+    isVehiclesOrbiting = not isVehiclesOrbiting
+    VehicleToggleBtn.BackgroundColor3 = isVehiclesOrbiting and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(46, 139, 87)
+    VehicleToggleBtn.Text = isVehiclesOrbiting and "Girar Veículos: ON" or "Girar Veículos: OFF"
+end)
+
+VehicleSpeedBtn.MouseButton1Click:Connect(function()
+    currentVehicleSpeedIndex = currentVehicleSpeedIndex % #vehicleSpeeds + 1
+    VehicleSpeedBtn.Text = "Vel. Veículos: " .. vehicleSpeeds[currentVehicleSpeedIndex].name
+end)
+
+VehicleDistBtn.MouseButton1Click:Connect(function()
+    currentVehicleDistIndex = currentVehicleDistIndex % #vehicleDistances + 1
+    VehicleDistBtn.Text = "Distância Veículos: " .. vehicleDistances[currentVehicleDistIndex].name
+end)
+
+VehicleHeightBtn.MouseButton1Click:Connect(function()
+    currentVehicleHeightIndex = currentVehicleHeightIndex % #vehicleHeights + 1
+    local nameText = (currentVehicleHeightIndex == 1 and "Baixo" or currentVehicleHeightIndex == 2 and "Meio" or currentVehicleHeightIndex == 3 and "Alto" or "Muito Alto")
+    VehicleHeightBtn.Text = "Altura Veículos: " .. nameText
+end)
+
+VoltarNoLugarButton.MouseButton1Click:Connect(function()
+    isVoltarNoLugarAtivo = not isVoltarNoLugarAtivo
+    VoltarNoLugarButton.BackgroundColor3 = isVoltarNoLugarAtivo and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(100, 100, 120)
+    VoltarNoLugarButton.Text = isVoltarNoLugarAtivo and "Voltar no Lugar: ON" or "Voltar no Lugar: OFF"
+    
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if isVoltarNoLugarAtivo and myRoot then
+        originalPositionCFrame = myRoot.CFrame
+        StatusLabel.Text = "Posição de retorno salva com sucesso!"
+    else
+        originalPositionCFrame = nil
+        StatusLabel.Text = "Posição salva desativada."
+    end
+end)
+
+AntiChuteButton.MouseButton1Click:Connect(function()
+    isAntiChuteAtivo = not isAntiChuteAtivo
+    AntiChuteButton.BackgroundColor3 = isAntiChuteAtivo and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(70, 100, 150)
+    AntiChuteButton.Text = isAntiChuteAtivo and "Anti Chute: ON" or "Anti Chute: OFF"
+    
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if isAntiChuteAtivo and myRoot then
+        originalPositionCFrame = myRoot.CFrame
+        StatusLabel.Text = "Anti Chute ativado! Posição monitorada."
+    else
+        StatusLabel.Text = "Anti Chute desativado."
+    end
+end)
+
+KickFlingButton.MouseButton1Click:Connect(function()
+    isKickFlinging = not isKickFlinging
+    KickFlingButton.BackgroundColor3 = isKickFlinging and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(200, 50, 50)
+    KickFlingButton.Text = isKickFlinging and "Kick Fling: ON" or "Kick Fling: OFF"
+    
+    if not isKickFlinging and originalPositionCFrame and isVoltarNoLugarAtivo then
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if myRoot then
+            myRoot.CFrame = originalPositionCFrame
+            myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            myRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            StatusLabel.Text = "Retornado ao lugar com sucesso!"
+        end
+    end
+end)
+
+FollowItemButton.MouseButton1Click:Connect(function()
+    isFollowItemActive = not isFollowItemActive
+    FollowItemButton.BackgroundColor3 = isFollowItemActive and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(210, 130, 30)
+    FollowItemButton.Text = isFollowItemActive and "Seguir c/ Item (babycar_c): ON" or "Seguir c/ Item (babycar_c): OFF"
+
+    if isFollowItemActive then
+        if not itemSelectedPlayer then
+            StatusLabel.Text = "Aviso: Selecione um jogador na aba de Itens!"
+        else
+            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+            local character = LocalPlayer.Character
+            if backpack and character then
+                local item = backpack:FindFirstChild("babycar_c") or character:FindFirstChild("babycar_c")
+                if item and item:IsA("Tool") then
+                    item.Parent = character
+                    StatusLabel.Text = "Item equipado! Indo e voltando em: " .. itemSelectedPlayer.Name
+                else
+                    StatusLabel.Text = "Item 'babycar_c' não encontrado na Backpack!"
+                end
+            end
+        end
+    else
+        StatusLabel.Text = "Função de seguir com item desativada."
+    end
+end)
+
+FollowItemSpeedButton.MouseButton1Click:Connect(function()
+    currentFollowItemSpeedIndex = currentFollowItemSpeedIndex % #followItemSpeeds + 1
+    FollowItemSpeedButton.Text = "Vel. Vai e Vem: " .. followItemSpeeds[currentFollowItemSpeedIndex].name
+end)
+
+-- Teclado Fly
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.W then keysDown.W = true end
+    if input.KeyCode == Enum.KeyCode.A then keysDown.A = true end
+    if input.KeyCode == Enum.KeyCode.S then keysDown.S = true end
+    if input.KeyCode == Enum.KeyCode.D then keysDown.D = true end
+    if input.KeyCode == Enum.KeyCode.Space then keysDown.Space = true end
+    if input.KeyCode == Enum.KeyCode.LeftShift then keysDown.Shift = true end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.W then keysDown.W = false end
+    if input.KeyCode == Enum.KeyCode.A then keysDown.A = false end
+    if input.KeyCode == Enum.KeyCode.S then keysDown.S = false end
+    if input.KeyCode == Enum.KeyCode.D then keysDown.D = false end
+    if input.KeyCode == Enum.KeyCode.Space then keysDown.Space = false end
+    if input.KeyCode == Enum.KeyCode.LeftShift then keysDown.Shift = false end
+end)
+
+-- ==================== LOOP PRINCIPAL ====================
+RunService.Heartbeat:Connect(function(deltaTime)
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local hum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+
+    -- Anti Chute
+    if isAntiChuteAtivo and myRoot then
+        if not originalPositionCFrame then
+            originalPositionCFrame = myRoot.CFrame
+        else
+            local distancia = (myRoot.Position - originalPositionCFrame.Position).Magnitude
+            if distancia > 15 and not isKickFlinging then
+                myRoot.CFrame = originalPositionCFrame
+                myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                myRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                StatusLabel.Text = "Anti Chute ativado: Retornado ao lugar!"
+            end
+        end
+    end
+
+    -- Speed
+    if isSpeedEnabled and hum then
+        hum.WalkSpeed = 16 + (speedPercentage / 100) * 234
+    end
+
+    -- Fly
+    if isFlying and myRoot and bodyGyro and bodyVelocity then
+        local cam = workspace.CurrentCamera
+        bodyGyro.CFrame = cam.CFrame
+        local dir = Vector3.new(0,0,0)
+        if keysDown.W then dir = dir + cam.CFrame.LookVector end
+        if keysDown.S then dir = dir - cam.CFrame.LookVector end
+        if keysDown.A then dir = dir - cam.CFrame.RightVector end
+        if keysDown.D then dir = dir + cam.CFrame.RightVector end
+        if keysDown.Space then dir = dir + Vector3.new(0,1,0) end
+        if keysDown.Shift then dir = dir - Vector3.new(0,1,0) end
+        bodyVelocity.velocity = dir * flySpeed
+    end
+
+    -- Kick Fling
+    if isKickFlinging and kickFlingTargetPlayer and kickFlingTargetPlayer.Character and myRoot then
+        local tRoot = kickFlingTargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if tRoot then
+            if isVoltarNoLugarAtivo and not originalPositionCFrame then
+                originalPositionCFrame = myRoot.CFrame
+            end
+
+            myRoot.CFrame = tRoot.CFrame
+            myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            tRoot.AssemblyLinearVelocity = Vector3.new(99999, 99999, 99999)
+            tRoot.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
+        end
+    end
+
+    -- Seguir com o Item (babycar_c) com velocidade customizável
+    if isFollowItemActive and itemSelectedPlayer and itemSelectedPlayer.Character and myRoot then
+        local tRoot = itemSelectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if tRoot then
+            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+            if myChar and backpack then
+                local item = myChar:FindFirstChild("babycar_c") or backpack:FindFirstChild("babycar_c")
+                if item and item:IsA("Tool") and item.Parent ~= myChar then
+                    item.Parent = myChar
+                end
+            end
+
+            local speedMultiplier = followItemSpeeds[currentFollowItemSpeedIndex].val
+            local timeFactor = tick() * speedMultiplier
+            local offsetValue = math.sin(timeFactor) * 4
+            
+            myRoot.CFrame = tRoot.CFrame * CFrame.new(0, 0, offsetValue)
+            myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end
+    end
+
+    -- MoverModel (Vai e Vem do Carro/Moto em cima do Player selecionado)
+    if isMoverModelActive and selectedVehicleModel and selectedVehicleModel.Parent and vehicleTpTargetPlayer and vehicleTpTargetPlayer.Character then
+        local motoModel = selectedVehicleModel
+        local motoPart = motoModel.PrimaryPart or motoModel:FindFirstChildWhichIsA("BasePart")
+        local tRoot = vehicleTpTargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        
+        if motoPart and tRoot then
+            moverModelTime = moverModelTime + (deltaTime * moverModelSpeeds[currentMoverModelSpeedIndex].val)
+            local maxDist = moverModelDistances[currentMoverModelDistIndex].val
+            local hOff = moverModelHeights[currentMoverModelHeightIndex]
+            
+            local offsetZ = math.sin(moverModelTime) * maxDist
+            local targetCF = tRoot.CFrame * CFrame.new(0, hOff, offsetZ)
+            
+            if motoModel.PrimaryPart then
+                motoModel:SetPrimaryPartCFrame(targetCF)
+                motoModel.PrimaryPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            else
+                for _, p in ipairs(motoModel:GetDescendants()) do
+                    if p:IsA("BasePart") then
+                        p.CFrame = targetCF
+                        p.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    -- Veículos (Girar em volta de você)
+    if isVehiclesOrbiting and myRoot then
+        local val = vehicleSpeeds[currentVehicleSpeedIndex].val
+        vehicleAngle = vehicleAngle + (val * (deltaTime * 60))
+        local rad = vehicleDistances[currentVehicleDistIndex].val
+        local hOff = vehicleHeights[currentVehicleHeightIndex]
+        local found = {}
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("VehicleSeat") or obj:IsA("Seat") then
+                local m = obj.Parent
+                if m and isRealVehicle(m) and m ~= myChar then
+                    local added = false
+                    for _, v in ipairs(found) do if v == m then added = true break end end
+                    if not added then
+                        local part = m.PrimaryPart or obj
+                        if (part.Position - myRoot.Position).Magnitude <= 50 then table.insert(found, m) end
+                    end
+                end
+            end
+        end
+        for i, m in ipairs(found) do
+            if m.Parent then
+                local ang = vehicleAngle + ((i / #found) * (math.pi * 2))
+                local cf = myRoot.CFrame * CFrame.new(math.cos(ang) * rad, hOff, math.sin(ang) * rad)
+                if m.PrimaryPart then
+                    m:SetPrimaryPartCFrame(cf)
+                    m.PrimaryPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                else
+                    for _, p in ipairs(m:GetDescendants()) do
+                        if p:IsA("BasePart") then p.CFrame = cf; p.AssemblyLinearVelocity = Vector3.new(0,0,0); break end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Seu boneco girando em volta do jogador selecionado
+    if isMyCharOrbiting and selectedPlayer and selectedPlayer.Character and myRoot then
+        local tRoot = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if tRoot then
+            myOrbitAngle = myOrbitAngle + (orbitSpeeds[currentMyOrbitSpeedIndex].val * (deltaTime * 60))
+            local rad = orbitDistances[currentDistanceIndex].val
+            local hOff = orbitHeights[currentHeightIndex]
+            
+            myRoot.CFrame = tRoot.CFrame * CFrame.new(math.cos(myOrbitAngle) * rad, hOff, math.sin(myOrbitAngle) * rad)
+            myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end
+    end
+
+    -- Órbita Clássica ou TP Player
+    if selectedPlayer and selectedPlayer.Character and myRoot and not isMyCharOrbiting then
+        local tRoot = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local tHum = selectedPlayer.Character:FindFirstChild("Humanoid")
+        if tRoot and tHum and tHum.Health > 0 then
+            if isOrbiting then
+                orbitAngle = orbitAngle + (orbitSpeeds[currentSpeedIndex].val * (deltaTime * 60))
+                local rad = orbitDistances[currentDistanceIndex].val
+                local hOff = orbitHeights[currentHeightIndex]
+                tRoot.CFrame = myRoot.CFrame * CFrame.new(math.cos(orbitAngle) * rad, hOff, math.sin(orbitAngle) * rad)
+                tRoot.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            elseif isTeleporting then
+                if tick() - lastTeleportTick >= teleportInterval then
+                    lastTeleportTick = tick()
+                    tRoot.CFrame = myRoot.CFrame * CFrame.new(0, 5, -3)
+                    tRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    tRoot:ApplyImpulse(Vector3.new(0, -tRoot.AssemblyMass * 150, 0))
+                end
+            end
+        end
+    end
+end)
